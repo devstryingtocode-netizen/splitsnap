@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import get_current_session_owner
 from app.api.v1.endpoints._docs import ERROR_RESPONSES
 from app.db import get_db
 from app.schemas.api import AssignmentCreate, AssignmentResponse, AssignmentUpdate
@@ -22,10 +23,11 @@ router = APIRouter(tags=["assignments"])
 def create_assignment(
     item_id: UUID,
     payload: AssignmentCreate,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> AssignmentResponse:
     return AssignmentResponse.model_validate(
-        service.create_assignment(db, item_id, payload)
+        service.create_assignment(db, owner_id, item_id, payload)
     )
 
 
@@ -37,11 +39,12 @@ def create_assignment(
 )
 def list_assignments(
     item_id: UUID,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> list[AssignmentResponse]:
     return [
         AssignmentResponse.model_validate(row)
-        for row in service.list_assignments(db, item_id)
+        for row in service.list_assignments(db, owner_id, item_id)
     ]
 
 
@@ -55,10 +58,11 @@ def list_assignments(
 def update_assignment(
     assignment_id: UUID,
     payload: AssignmentUpdate,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> AssignmentResponse:
     return AssignmentResponse.model_validate(
-        service.update_assignment(db, assignment_id, payload)
+        service.update_assignment(db, owner_id, assignment_id, payload)
     )
 
 
@@ -73,7 +77,8 @@ def update_assignment(
 )
 def delete_assignment(
     assignment_id: UUID,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> Response:
-    service.delete_assignment(db, assignment_id)
+    service.delete_assignment(db, owner_id, assignment_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

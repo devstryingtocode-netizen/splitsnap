@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import get_current_session_owner
 from app.api.v1.endpoints._docs import ERROR_RESPONSES
 from app.db import get_db
 from app.schemas.api import ParticipantCreate, ParticipantResponse, ParticipantUpdate
@@ -21,10 +22,11 @@ router = APIRouter(tags=["participants"])
 def create_participant(
     session_id: UUID,
     payload: ParticipantCreate,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> ParticipantResponse:
     return ParticipantResponse.model_validate(
-        service.add_participant(db, session_id, payload)
+        service.add_participant(db, owner_id, session_id, payload)
     )
 
 
@@ -36,11 +38,12 @@ def create_participant(
 )
 def list_participants(
     session_id: UUID,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> list[ParticipantResponse]:
     return [
         ParticipantResponse.model_validate(row)
-        for row in service.list_participants(db, session_id)
+        for row in service.list_participants(db, owner_id, session_id)
     ]
 
 
@@ -52,10 +55,11 @@ def list_participants(
 )
 def get_participant(
     participant_id: UUID,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> ParticipantResponse:
     return ParticipantResponse.model_validate(
-        service.get_participant(db, participant_id)
+        service.get_participant(db, owner_id, participant_id)
     )
 
 
@@ -68,10 +72,11 @@ def get_participant(
 def update_participant(
     participant_id: UUID,
     payload: ParticipantUpdate,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> ParticipantResponse:
     return ParticipantResponse.model_validate(
-        service.update_participant(db, participant_id, payload)
+        service.update_participant(db, owner_id, participant_id, payload)
     )
 
 
@@ -87,7 +92,8 @@ def update_participant(
 )
 def delete_participant(
     participant_id: UUID,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> Response:
-    service.delete_participant(db, participant_id)
+    service.delete_participant(db, owner_id, participant_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

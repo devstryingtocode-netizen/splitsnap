@@ -91,10 +91,29 @@ class PaymentStatus(str, Enum):
 
 class User(TimestampMixin, Base):
     __tablename__ = "users"
+    __table_args__ = (
+        Index(
+            "uq_users_email_lower",
+            text("lower(email)"),
+            unique=True,
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    is_active: Mapped[bool] = mapped_column(
+        default=True,
+        server_default=text("true"),
+        nullable=False,
+    )
+    email_verified: Mapped[bool] = mapped_column(
+        default=False,
+        server_default=text("false"),
+        nullable=False,
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     bill_sessions: Mapped[list["BillSession"]] = relationship(
         back_populates="owner",

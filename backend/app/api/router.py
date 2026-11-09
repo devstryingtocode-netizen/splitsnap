@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     assignments,
+    auth,
     chat,
     invoices,
     participants,
@@ -13,6 +14,7 @@ from app.api.v1.endpoints import (
 )
 
 api_router = APIRouter()
+api_router.include_router(auth.router)
 api_router.include_router(sessions.router)
 api_router.include_router(participants.router)
 api_router.include_router(receipts.router)

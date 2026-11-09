@@ -39,10 +39,10 @@ cp backend/.env.example backend/.env
 ```
 
 Set `NEXT_PUBLIC_API_URL` in `frontend/.env.local`. Set the backend values in
-`backend/.env`; for local API use, follow the development-owner setup below.
-Generate a unique `SECRET_KEY` before deploying. Keep real `.env` files out of
-Git. The root [.env.example](./.env.example) summarizes the supported
-variables and contains placeholders only.
+`backend/.env`, including a random `JWT_SECRET_KEY` of at least 32 characters.
+Generate one with `python -c "import secrets; print(secrets.token_hex(32))"`.
+Keep real `.env` files out of Git. The root [.env.example](./.env.example)
+summarizes the supported variables and contains placeholders only.
 
 ## Run the frontend
 
@@ -73,27 +73,39 @@ The health endpoint is [http://localhost:8000/health](http://localhost:8000/heal
 interactive API documentation is at [http://localhost:8000/docs](http://localhost:8000/docs).
 The application routes are grouped under `/api/v1`.
 
-### Development owner setup
+### Register and authenticate
 
-Authentication is not implemented. To support local API requests without
-accepting a client-supplied owner ID, the backend uses the temporary
-`DEVELOPMENT_OWNER_ID` setting. It must reference an existing row in `users`;
-the API does not create one implicitly.
-
-After migrating, seed the optional development data and copy the printed UUID
-into `backend/.env` as `DEVELOPMENT_OWNER_ID`:
+After applying migrations, register an account and log in. Registration never
+marks email verified and returns no password data. Login accepts JSON and
+returns a 30-minute JWT:
 
 ```bash
 cd backend
 alembic upgrade head
-APP_ENV=development python -m app.seed
+curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Example User","email":"user@example.test","password":"<choose-a-unique-password-of-at-least-12-characters>"}'
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.test","password":"<the-password-you-chose>"}'
 ```
 
-Restart the backend after setting the owner UUID. If it is unset, invalid, or
-references no existing user, API requests return a clear `503` configuration
-error. This single-owner setup is strictly for development and is not
-production-safe. Real authentication, authorization, and ownership isolation
-must be implemented before deployment.
+Send the returned `access_token` as `Authorization: Bearer <token>` on private
+API requests. In Swagger at `/docs`, log in through the JSON `/auth/login`
+endpoint, copy `access_token`, select **Authorize**, and paste the token. All
+bill-session and related-resource endpoints require an active authenticated
+user. Session ownership is derived from that user; caller-supplied `owner_id`
+is rejected.
+
+The frontend API client keeps the token in memory only, attaches it to private
+requests, clears it after a 401, and discards it on logout. Reloading the page
+also clears it. Logout is stateless: the server does not revoke a token, and a
+copied token remains valid until expiry.
+
+Optional sample data can be loaded with `APP_ENV=development python -m
+app.seed`. It creates a legacy-style sample user with no password set, so that
+user cannot log in; register an account for authenticated API use. Seed data
+must not be treated as credentials.
 
 ## Database
 
@@ -127,6 +139,11 @@ cd backend
 alembic upgrade head
 ```
 
+The authentication migration normalizes existing account emails to lowercase
+and trims surrounding whitespace. It stops before changing the schema if
+existing accounts contain addresses that collide after normalization; resolve
+those duplicate accounts before retrying.
+
 Rollback the schema with `alembic downgrade base`. Apply it again with
 `alembic upgrade head`. The local SQLite database is `backend/splitsnap.db`;
 tests use isolated in-memory or temporary SQLite databases instead.
@@ -138,9 +155,8 @@ cd backend
 APP_ENV=development python -m app.seed
 ```
 
-The seed script refuses to run outside development/test and is idempotent.
-It only inserts representative records and does not execute automatically.
-It prints the seeded development user's UUID for `DEVELOPMENT_OWNER_ID`.
+The seed script refuses to run outside development/test and is idempotent. It
+only inserts representative records and does not execute automatically.
 
 Install development dependencies and run the backend checks:
 
@@ -177,11 +193,28 @@ lossy binary floating-point representation. API errors use a consistent
 `{"error":{"code":"...","message":"..."}}` shape; validation errors also
 include field details. Swagger and ReDoc are available at `/docs` and `/redoc`.
 
-Example local API calls after configuring the development owner:
+## Authentication and security limitations
+
+- Passwords are hashed with Argon2; JWT access tokens are signed using HS256
+  and expire after the configured `ACCESS_TOKEN_EXPIRE_MINUTES`.
+- Existing users migrated without a password hash cannot log in until a
+  password-reset flow is provided; no credentials are assigned automatically.
+- Email verification delivery, rate limiting, MFA, refresh tokens, and token
+  revocation are not implemented. Logout only clears frontend memory.
+- The frontend currently uses an in-memory bearer token rather than an
+  HttpOnly cookie. Do not persist it in localStorage or expose backend
+  secrets through `NEXT_PUBLIC_*` settings.
+- The token secret must be unique and strong in every deployed environment.
+  Production startup fails when `JWT_SECRET_KEY` is shorter than 32 characters.
+- The development seed account has no password and cannot authenticate.
+
+Example local API calls after registering and logging in:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/sessions \
   -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <access-token>' \
   -d '{"title":"Dinner with friends","currency":"USD"}'
-curl 'http://localhost:8000/api/v1/sessions?limit=20&offset=0'
+curl 'http://localhost:8000/api/v1/sessions?limit=20&offset=0' \
+  -H 'Authorization: Bearer <access-token>'
 ```

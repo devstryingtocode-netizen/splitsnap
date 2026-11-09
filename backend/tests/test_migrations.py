@@ -1,10 +1,11 @@
 from decimal import Decimal
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -78,9 +79,22 @@ def test_history_migration_preserves_records_and_blocks_participant_delete(
     try:
         command.upgrade(config, "f0bafed4c28a")
         with Session(engine) as session:
-            owner = User(name="History owner", email="history-owner@example.test")
+            owner_id = uuid4()
+            session.execute(
+                text(
+                    """
+                    INSERT INTO users (id, name, email, created_at, updated_at)
+                    VALUES (:id, :name, :email, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """
+                ),
+                {
+                    "id": owner_id.hex,
+                    "name": "History owner",
+                    "email": "History-Owner@Example.Test ",
+                },
+            )
             bill_session = BillSession(
-                owner=owner,
+                owner_id=owner_id,
                 title="Historical dinner",
                 currency="USD",
             )
@@ -123,6 +137,12 @@ def test_history_migration_preserves_records_and_blocks_participant_delete(
 
         command.upgrade(config, "head")
         with Session(engine) as session:
+            migrated_user = session.get(User, owner_id)
+            assert migrated_user is not None
+            assert migrated_user.email == "history-owner@example.test"
+            assert migrated_user.password_hash is None
+            assert migrated_user.is_active is True
+            assert migrated_user.email_verified is False
             assert session.query(BillSplit).count() == 1
             assert session.query(PayPalInvoice).count() == 1
             assert session.query(Payment).count() == 1

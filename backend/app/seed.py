@@ -164,7 +164,10 @@ def main() -> None:
             owner_id = user.id
     finally:
         seed_engine.dispose()
-    print(f"Development owner user id: {owner_id}")
+    print(
+        f"Development seed user id: {owner_id}. This seeded account has no password; "
+        "register another account to use authenticated API endpoints."
+    )
 
 
 if __name__ == "__main__":

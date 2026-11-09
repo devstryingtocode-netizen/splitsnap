@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models import (
     BillSession,
     BillSplit,
@@ -126,7 +125,7 @@ def test_session_and_participant_crud(
     assert client.get(f"/api/v1/participants/{participant_id}").status_code == 404
 
 
-def test_session_validation_cancellation_and_development_owner(
+def test_session_validation_cancellation_and_client_owner_rejection(
     api_client: tuple[TestClient, Engine, UUID],
 ) -> None:
     client, _, _ = api_client
@@ -368,7 +367,6 @@ def test_financial_read_endpoints_return_empty_arrays_and_missing_errors(
 
 def test_documentation_and_owner_configuration_errors(
     api_client: tuple[TestClient, Engine, UUID],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, _, _ = api_client
     assert client.get("/docs").status_code == 200
@@ -377,16 +375,16 @@ def test_documentation_and_owner_configuration_errors(
     assert "/api/v1/sessions" in openapi["paths"]
     assert "/api/v1/sessions/{session_id}/receipts" in openapi["paths"]
     assert "/api/v1/receipts/{receipt_id}" in openapi["paths"]
-
-    monkeypatch.setenv("DEVELOPMENT_OWNER_ID", str(uuid4()))
-    get_settings.cache_clear()
-    missing_owner = client.get("/api/v1/sessions")
-    assert missing_owner.status_code == 503
-    assert missing_owner.json()["error"]["code"] == "development_owner_not_found"
-
-    monkeypatch.delenv("DEVELOPMENT_OWNER_ID")
-    get_settings.cache_clear()
-    response = client.get("/api/v1/sessions")
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "development_owner_not_configured"
-    get_settings.cache_clear()
+    assert "/api/v1/auth/register" in openapi["paths"]
+    assert "/api/v1/auth/login" in openapi["paths"]
+    assert "HTTPBearer" in openapi["components"]["securitySchemes"]
+    for path, path_item in openapi["paths"].items():
+        if not path.startswith("/api/v1/"):
+            continue
+        for operation in path_item.values():
+            if not isinstance(operation, dict) or "responses" not in operation:
+                continue
+            if path in {"/api/v1/auth/register", "/api/v1/auth/login"}:
+                assert "security" not in operation
+            else:
+                assert operation["security"] == [{"HTTPBearer": []}]

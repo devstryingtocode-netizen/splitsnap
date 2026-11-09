@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from app.models import (
     BillSessionStatus,
@@ -35,6 +35,46 @@ class APIModel(BaseModel):
 
 class ORMResponse(APIModel):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+
+class RegisterRequest(APIModel):
+    name: Annotated[str, StringConstraints(min_length=1, max_length=200, strip_whitespace=True)]
+    email: EmailAddress
+    password: Annotated[str, StringConstraints(min_length=12, max_length=128)]
+
+    @field_validator("password")
+    @classmethod
+    def reject_whitespace_password(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Password must contain a non-whitespace character.")
+        return value
+
+
+class LoginRequest(APIModel):
+    email: EmailAddress
+    password: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+
+
+class UserResponse(ORMResponse):
+    id: UUID
+    name: str
+    email: EmailAddress
+    is_active: bool
+    email_verified: bool
+    created_at: datetime
+    updated_at: datetime
+    last_login_at: datetime | None
+
+
+class AuthTokenResponse(APIModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserResponse
+
+
+class LogoutResponse(APIModel):
+    message: str
 
 
 class SessionCreate(APIModel):

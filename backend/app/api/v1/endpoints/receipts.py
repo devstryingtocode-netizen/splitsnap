@@ -1,6 +1,8 @@
 from fastapi import APIRouter
 from fastapi import Depends, status
 from sqlalchemy.orm import Session
+
+from app.api.dependencies import get_current_session_owner
 from uuid import UUID
 
 from app.api.v1.endpoints._docs import ERROR_RESPONSES
@@ -25,9 +27,10 @@ router = APIRouter(tags=["receipts"])
 def create_session_receipt(
     session_id: UUID,
     payload: ReceiptCreate,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> ReceiptResponse:
-    receipt = service.create_receipt(db, session_id, payload)
+    receipt = service.create_receipt(db, owner_id, session_id, payload)
     return ReceiptResponse.model_validate(receipt)
 
 
@@ -39,9 +42,10 @@ def create_session_receipt(
 )
 def get_session_receipt(
     session_id: UUID,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> ReceiptResponse:
-    receipt = service.get_receipt_for_session(db, session_id)
+    receipt = service.get_receipt_for_session(db, owner_id, session_id)
     return ReceiptResponse.model_validate(receipt)
 
 
@@ -53,9 +57,10 @@ def get_session_receipt(
 )
 def get_receipt(
     receipt_id: UUID,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> ReceiptResponse:
-    receipt = service.get_receipt(db, receipt_id)
+    receipt = service.get_receipt(db, owner_id, receipt_id)
     return ReceiptResponse.model_validate(receipt)
 
 
@@ -72,7 +77,8 @@ def get_receipt(
 def update_receipt(
     receipt_id: UUID,
     payload: ReceiptUpdate,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> ReceiptResponse:
-    receipt = service.update_receipt(db, receipt_id, payload)
+    receipt = service.update_receipt(db, owner_id, receipt_id, payload)
     return ReceiptResponse.model_validate(receipt)

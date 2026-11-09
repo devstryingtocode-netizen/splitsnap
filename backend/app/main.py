@@ -1,3 +1,6 @@
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -9,18 +12,26 @@ from app.core.logging import configure_logging
 settings = get_settings()
 configure_logging()
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    settings.validate_production_security()
+    yield
+
+
 app = FastAPI(
     title="Splitsnap API",
     description="Backend API for the Splitsnap bill-splitting application.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[str(settings.frontend_url).rstrip("/")],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 register_exception_handlers(app)

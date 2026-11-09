@@ -3,6 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import get_current_session_owner
 from app.api.v1.endpoints._docs import ERROR_RESPONSES
 from app.db import get_db
 from app.schemas.api import ReceiptItemCreate, ReceiptItemResponse, ReceiptItemUpdate
@@ -21,10 +22,11 @@ router = APIRouter(tags=["receipt items"])
 def create_receipt_item(
     receipt_id: UUID,
     payload: ReceiptItemCreate,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> ReceiptItemResponse:
     return ReceiptItemResponse.model_validate(
-        service.create_receipt_item(db, receipt_id, payload)
+        service.create_receipt_item(db, owner_id, receipt_id, payload)
     )
 
 
@@ -36,11 +38,12 @@ def create_receipt_item(
 )
 def list_receipt_items(
     receipt_id: UUID,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> list[ReceiptItemResponse]:
     return [
         ReceiptItemResponse.model_validate(row)
-        for row in service.list_receipt_items(db, receipt_id)
+        for row in service.list_receipt_items(db, owner_id, receipt_id)
     ]
 
 
@@ -54,10 +57,11 @@ def list_receipt_items(
 def update_receipt_item(
     item_id: UUID,
     payload: ReceiptItemUpdate,
+    owner_id: UUID = Depends(get_current_session_owner),
     db: Session = Depends(get_db),
 ) -> ReceiptItemResponse:
     return ReceiptItemResponse.model_validate(
-        service.update_receipt_item(db, item_id, payload)
+        service.update_receipt_item(db, owner_id, item_id, payload)
     )
 
 
@@ -71,6 +75,10 @@ def update_receipt_item(
         204: {"description": "Receipt item removed."},
     },
 )
-def delete_receipt_item(item_id: UUID, db: Session = Depends(get_db)) -> Response:
-    service.delete_receipt_item(db, item_id)
+def delete_receipt_item(
+    item_id: UUID,
+    owner_id: UUID = Depends(get_current_session_owner),
+    db: Session = Depends(get_db),
+) -> Response:
+    service.delete_receipt_item(db, owner_id, item_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

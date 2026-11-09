@@ -1,6 +1,4 @@
 from collections.abc import Iterator
-
-from collections.abc import Iterator
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -10,6 +8,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
+from app.core.security import hash_password
 from app.db import get_db
 from app.db.session import create_database_engine
 from app.models import Base
@@ -40,7 +39,8 @@ def api_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[tuple[TestClient, Engine, UUID]]:
     owner_id = uuid4()
-    monkeypatch.setenv("DEVELOPMENT_OWNER_ID", str(owner_id))
+    monkeypatch.setenv("APP_ENV", "test")
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-only-signing-key-with-32-bytes-minimum")
     get_settings.cache_clear()
 
     engine = create_database_engine(f"sqlite:///{tmp_path / 'api-test.sqlite'}")
@@ -53,6 +53,7 @@ def api_client(
                 id=owner_id,
                 name="API Test Owner",
                 email="api-owner@example.test",
+                password_hash=hash_password("test-password-with-12-chars"),
             )
         )
         session.commit()
@@ -64,6 +65,17 @@ def api_client(
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as client:
+            login = client.post(
+                "/api/v1/auth/login",
+                json={
+                    "email": "API-OWNER@example.test",
+                    "password": "test-password-with-12-chars",
+                },
+            )
+            assert login.status_code == 200, login.text
+            client.headers["Authorization"] = (
+                f"Bearer {login.json()['access_token']}"
+            )
             yield client, engine, owner_id
     finally:
         app.dependency_overrides.pop(get_db, None)

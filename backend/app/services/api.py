@@ -5,7 +5,6 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.core.errors import APIError
 from app.models import (
     BillSession,
@@ -18,7 +17,6 @@ from app.models import (
     Receipt,
     ReceiptExtractionStatus,
     ReceiptItem,
-    User,
 )
 from app.repositories import api as repository
 from app.schemas.api import (
@@ -35,32 +33,6 @@ from app.schemas.api import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _development_owner_id(db: Session) -> UUID:
-    configured_id = get_settings().development_owner_id.strip()
-    if not configured_id:
-        raise APIError(
-            503,
-            "development_owner_not_configured",
-            "Set DEVELOPMENT_OWNER_ID to an existing user UUID before using the API.",
-        )
-    try:
-        owner_id = UUID(configured_id)
-    except ValueError as exc:
-        raise APIError(
-            503,
-            "development_owner_not_configured",
-            "DEVELOPMENT_OWNER_ID must be a valid UUID for an existing user.",
-        ) from exc
-
-    if db.get(User, owner_id) is None:
-        raise APIError(
-            503,
-            "development_owner_not_found",
-            "DEVELOPMENT_OWNER_ID does not match an existing user.",
-        )
-    return owner_id
 
 
 def _not_found(resource: str) -> APIError:
@@ -143,8 +115,9 @@ def _session_response(bill_session: BillSession) -> dict[str, object]:
     }
 
 
-def create_session(db: Session, payload: SessionCreate) -> dict[str, object]:
-    owner_id = _development_owner_id(db)
+def create_session(
+    db: Session, owner_id: UUID, payload: SessionCreate
+) -> dict[str, object]:
     bill_session = BillSession(
         owner_id=owner_id,
         title=payload.title,
@@ -159,8 +132,9 @@ def create_session(db: Session, payload: SessionCreate) -> dict[str, object]:
     return _session_response(row)
 
 
-def list_sessions(db: Session, limit: int, offset: int) -> dict[str, object]:
-    owner_id = _development_owner_id(db)
+def list_sessions(
+    db: Session, owner_id: UUID, limit: int, offset: int
+) -> dict[str, object]:
     sessions, total = repository.list_sessions(db, owner_id, limit, offset)
     return {
         "items": [_session_response(row) for row in sessions],
@@ -170,8 +144,9 @@ def list_sessions(db: Session, limit: int, offset: int) -> dict[str, object]:
     }
 
 
-def get_session(db: Session, session_id: UUID) -> dict[str, object]:
-    owner_id = _development_owner_id(db)
+def get_session(
+    db: Session, owner_id: UUID, session_id: UUID
+) -> dict[str, object]:
     bill_session = repository.get_session(db, owner_id, session_id)
     if bill_session is None:
         raise _not_found("Bill session")
@@ -181,9 +156,8 @@ def get_session(db: Session, session_id: UUID) -> dict[str, object]:
 
 
 def update_session(
-    db: Session, session_id: UUID, payload: SessionUpdate
+    db: Session, owner_id: UUID, session_id: UUID, payload: SessionUpdate
 ) -> dict[str, object]:
-    owner_id = _development_owner_id(db)
     bill_session = repository.get_session(db, owner_id, session_id)
     if bill_session is None:
         raise _not_found("Bill session")
@@ -211,8 +185,9 @@ def update_session(
     return _session_response(updated)
 
 
-def cancel_session(db: Session, session_id: UUID) -> dict[str, object]:
-    owner_id = _development_owner_id(db)
+def cancel_session(
+    db: Session, owner_id: UUID, session_id: UUID
+) -> dict[str, object]:
     bill_session = repository.get_session(db, owner_id, session_id)
     if bill_session is None:
         raise _not_found("Bill session")
@@ -258,9 +233,8 @@ def _check_duplicate_participant(
 
 
 def add_participant(
-    db: Session, session_id: UUID, payload: ParticipantCreate
+    db: Session, owner_id: UUID, session_id: UUID, payload: ParticipantCreate
 ) -> Participant:
-    owner_id = _development_owner_id(db)
     _require_editable_session(db, owner_id, session_id)
     _check_duplicate_participant(db, session_id, payload.name, payload.email)
     participant = Participant(
@@ -275,16 +249,18 @@ def add_participant(
     return participant
 
 
-def list_participants(db: Session, session_id: UUID) -> list[Participant]:
-    owner_id = _development_owner_id(db)
+def list_participants(
+    db: Session, owner_id: UUID, session_id: UUID
+) -> list[Participant]:
     bill_session = repository.get_session(db, owner_id, session_id)
     if bill_session is None:
         raise _not_found("Bill session")
     return bill_session.participants
 
 
-def get_participant(db: Session, participant_id: UUID) -> Participant:
-    owner_id = _development_owner_id(db)
+def get_participant(
+    db: Session, owner_id: UUID, participant_id: UUID
+) -> Participant:
     participant = repository.get_participant(db, owner_id, participant_id)
     if participant is None:
         raise _not_found("Participant")
@@ -292,9 +268,8 @@ def get_participant(db: Session, participant_id: UUID) -> Participant:
 
 
 def update_participant(
-    db: Session, participant_id: UUID, payload: ParticipantUpdate
+    db: Session, owner_id: UUID, participant_id: UUID, payload: ParticipantUpdate
 ) -> Participant:
-    owner_id = _development_owner_id(db)
     participant = repository.get_participant(db, owner_id, participant_id)
     if participant is None:
         raise _not_found("Participant")
@@ -323,8 +298,7 @@ def update_participant(
     return participant
 
 
-def delete_participant(db: Session, participant_id: UUID) -> None:
-    owner_id = _development_owner_id(db)
+def delete_participant(db: Session, owner_id: UUID, participant_id: UUID) -> None:
     participant = repository.get_participant(db, owner_id, participant_id)
     if participant is None:
         raise _not_found("Participant")
@@ -346,9 +320,8 @@ def delete_participant(db: Session, participant_id: UUID) -> None:
 
 
 def create_receipt(
-    db: Session, session_id: UUID, payload: ReceiptCreate
+    db: Session, owner_id: UUID, session_id: UUID, payload: ReceiptCreate
 ) -> Receipt:
-    owner_id = _development_owner_id(db)
     bill_session = _require_editable_session(db, owner_id, session_id)
     if payload.currency is not None and payload.currency != bill_session.currency:
         raise APIError(
@@ -373,8 +346,9 @@ def create_receipt(
     return receipt
 
 
-def get_receipt_for_session(db: Session, session_id: UUID) -> Receipt:
-    owner_id = _development_owner_id(db)
+def get_receipt_for_session(
+    db: Session, owner_id: UUID, session_id: UUID
+) -> Receipt:
     if repository.get_session(db, owner_id, session_id) is None:
         raise _not_found("Bill session")
     receipt = repository.get_receipt_for_session(db, owner_id, session_id)
@@ -383,8 +357,7 @@ def get_receipt_for_session(db: Session, session_id: UUID) -> Receipt:
     return receipt
 
 
-def get_receipt(db: Session, receipt_id: UUID) -> Receipt:
-    owner_id = _development_owner_id(db)
+def get_receipt(db: Session, owner_id: UUID, receipt_id: UUID) -> Receipt:
     receipt = repository.get_receipt(db, owner_id, receipt_id)
     if receipt is None:
         raise _not_found("Receipt")
@@ -392,9 +365,8 @@ def get_receipt(db: Session, receipt_id: UUID) -> Receipt:
 
 
 def update_receipt(
-    db: Session, receipt_id: UUID, payload: ReceiptUpdate
+    db: Session, owner_id: UUID, receipt_id: UUID, payload: ReceiptUpdate
 ) -> Receipt:
-    owner_id = _development_owner_id(db)
     receipt = repository.get_receipt(db, owner_id, receipt_id)
     if receipt is None:
         raise _not_found("Receipt")
@@ -421,9 +393,8 @@ def update_receipt(
 
 
 def create_receipt_item(
-    db: Session, receipt_id: UUID, payload: ReceiptItemCreate
+    db: Session, owner_id: UUID, receipt_id: UUID, payload: ReceiptItemCreate
 ) -> ReceiptItem:
-    owner_id = _development_owner_id(db)
     receipt = repository.get_receipt(db, owner_id, receipt_id)
     if receipt is None:
         raise _not_found("Receipt")
@@ -442,17 +413,17 @@ def create_receipt_item(
     return item
 
 
-def list_receipt_items(db: Session, receipt_id: UUID) -> list[ReceiptItem]:
-    owner_id = _development_owner_id(db)
+def list_receipt_items(
+    db: Session, owner_id: UUID, receipt_id: UUID
+) -> list[ReceiptItem]:
     if repository.get_receipt(db, owner_id, receipt_id) is None:
         raise _not_found("Receipt")
     return repository.list_items(db, owner_id, receipt_id)
 
 
 def update_receipt_item(
-    db: Session, item_id: UUID, payload: ReceiptItemUpdate
+    db: Session, owner_id: UUID, item_id: UUID, payload: ReceiptItemUpdate
 ) -> ReceiptItem:
-    owner_id = _development_owner_id(db)
     item = repository.get_item(db, owner_id, item_id)
     if item is None:
         raise _not_found("Receipt item")
@@ -474,8 +445,7 @@ def update_receipt_item(
     return item
 
 
-def delete_receipt_item(db: Session, item_id: UUID) -> None:
-    owner_id = _development_owner_id(db)
+def delete_receipt_item(db: Session, owner_id: UUID, item_id: UUID) -> None:
     item = repository.get_item(db, owner_id, item_id)
     if item is None:
         raise _not_found("Receipt item")
@@ -491,9 +461,8 @@ def delete_receipt_item(db: Session, item_id: UUID) -> None:
 
 
 def create_assignment(
-    db: Session, item_id: UUID, payload: AssignmentCreate
+    db: Session, owner_id: UUID, item_id: UUID, payload: AssignmentCreate
 ) -> ItemAssignment:
-    owner_id = _development_owner_id(db)
     item = repository.get_item(db, owner_id, item_id)
     if item is None:
         raise _not_found("Receipt item")
@@ -521,17 +490,17 @@ def create_assignment(
     return assignment
 
 
-def list_assignments(db: Session, item_id: UUID) -> list[ItemAssignment]:
-    owner_id = _development_owner_id(db)
+def list_assignments(
+    db: Session, owner_id: UUID, item_id: UUID
+) -> list[ItemAssignment]:
     if repository.get_item(db, owner_id, item_id) is None:
         raise _not_found("Receipt item")
     return repository.list_assignments(db, owner_id, item_id)
 
 
 def update_assignment(
-    db: Session, assignment_id: UUID, payload: AssignmentUpdate
+    db: Session, owner_id: UUID, assignment_id: UUID, payload: AssignmentUpdate
 ) -> ItemAssignment:
-    owner_id = _development_owner_id(db)
     assignment = repository.get_assignment(db, owner_id, assignment_id)
     if assignment is None:
         raise _not_found("Assignment")
@@ -567,8 +536,9 @@ def update_assignment(
     return assignment
 
 
-def delete_assignment(db: Session, assignment_id: UUID) -> None:
-    owner_id = _development_owner_id(db)
+def delete_assignment(
+    db: Session, owner_id: UUID, assignment_id: UUID
+) -> None:
     assignment = repository.get_assignment(db, owner_id, assignment_id)
     if assignment is None:
         raise _not_found("Assignment")
@@ -580,37 +550,40 @@ def delete_assignment(db: Session, assignment_id: UUID) -> None:
     _commit(db)
 
 
-def list_session_splits(db: Session, session_id: UUID) -> list[BillSplit]:
-    owner_id = _development_owner_id(db)
+def list_session_splits(
+    db: Session, owner_id: UUID, session_id: UUID
+) -> list[BillSplit]:
     if repository.get_session(db, owner_id, session_id) is None:
         raise _not_found("Bill session")
     return repository.list_splits(db, owner_id, session_id)
 
 
-def list_session_invoices(db: Session, session_id: UUID) -> list[PayPalInvoice]:
-    owner_id = _development_owner_id(db)
+def list_session_invoices(
+    db: Session, owner_id: UUID, session_id: UUID
+) -> list[PayPalInvoice]:
     if repository.get_session(db, owner_id, session_id) is None:
         raise _not_found("Bill session")
     return repository.list_invoices(db, owner_id, session_id)
 
 
-def get_invoice(db: Session, invoice_id: UUID) -> PayPalInvoice:
-    owner_id = _development_owner_id(db)
+def get_invoice(db: Session, owner_id: UUID, invoice_id: UUID) -> PayPalInvoice:
     invoice = repository.get_invoice(db, owner_id, invoice_id)
     if invoice is None:
         raise _not_found("Invoice")
     return invoice
 
 
-def list_invoice_payments(db: Session, invoice_id: UUID) -> list[Payment]:
-    owner_id = _development_owner_id(db)
+def list_invoice_payments(
+    db: Session, owner_id: UUID, invoice_id: UUID
+) -> list[Payment]:
     if repository.get_invoice(db, owner_id, invoice_id) is None:
         raise _not_found("Invoice")
     return repository.list_invoice_payments(db, owner_id, invoice_id)
 
 
-def list_session_payments(db: Session, session_id: UUID) -> list[Payment]:
-    owner_id = _development_owner_id(db)
+def list_session_payments(
+    db: Session, owner_id: UUID, session_id: UUID
+) -> list[Payment]:
     if repository.get_session(db, owner_id, session_id) is None:
         raise _not_found("Bill session")
     return repository.list_session_payments(db, owner_id, session_id)

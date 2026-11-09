@@ -86,10 +86,14 @@ UUID primary keys map to native PostgreSQL UUID columns and remain compatible
 with SQLite. Created/updated timestamps use timezone-aware UTC values in the
 application; SQLite round-tripped timestamps are normalized back to UTC.
 
-Run `alembic upgrade head` from `backend/` to apply the initial schema, or
+Run `alembic upgrade head` from `backend/` to apply the schema, or
 `alembic downgrade base` to remove it. Development and automated tests use
 SQLite, while production can use PostgreSQL through `DATABASE_URL`. Tests use
-isolated databases and do not touch the development database.
+isolated databases and do not touch the development database. The
+authentication migration adds nullable password hashes and account status
+fields; existing users receive no generated or default password. It
+normalizes legacy email casing and whitespace, and refuses to continue if that
+normalization would create duplicate accounts.
 
 Optional sample records can be loaded after migration with
 `APP_ENV=development python -m app.seed` from `backend/`. The script is
@@ -106,10 +110,21 @@ structured errors. Receipt extraction status cannot be set by API clients,
 financial records are read-only, and participant/item mutations are blocked
 when doing so would alter financial history.
 
-Authentication is not implemented. For local development only, API ownership
-comes from the server-side `DEVELOPMENT_OWNER_ID`, which must reference an
-existing user row; the client cannot specify an owner. The API scopes resource
-queries to that configured user. This is not a production security boundary:
-any caller who can reach the API can act as the configured development owner.
-Real authentication and per-user authorization must be implemented before
-deployment.
+Registration normalizes email addresses and hashes passwords with Argon2.
+Login returns an HS256 JWT access token with required subject, issue time,
+expiration, and access-token type claims. Private routes require a bearer
+token and reject inactive accounts. Session creation assigns its owner from
+the authenticated database user, never from request data.
+
+Repositories scope sessions, participants, receipts, items, assignments,
+invoices, splits, and payment queries through the owning session. Inaccessible
+resources return 404 to avoid exposing their existence. Mutations validate
+related participant and receipt-item ownership before changing assignments.
+The frontend stores access tokens in memory only, removes them on 401/logout,
+and does not persist them in localStorage. Server logout cannot revoke a
+stateless copied token; it remains valid until expiration.
+
+Email verification, rate limiting, MFA, refresh-token rotation, and token
+revocation are not implemented. The current bearer-token frontend strategy is
+an MVP compromise; HttpOnly cookies and CSRF protections should be designed
+before adding persistent browser sessions.
